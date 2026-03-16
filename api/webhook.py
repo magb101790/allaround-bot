@@ -1,8 +1,6 @@
-from http.server import BaseHTTPRequestHandler
 import json
 import os
 import urllib.request
-import urllib.parse
 from datetime import datetime
 import pytz
 
@@ -17,8 +15,6 @@ NOTION_DB_SETTINGS = os.environ.get("NOTION_DB_SETTINGS")
 TIMEZONE = "Europe/Rome"
 
 tz = pytz.timezone(TIMEZONE)
-
-# --- HELPERS HTTP ---
 
 def notion_request(method, path, data=None):
     url = f"https://api.notion.com/v1{path}"
@@ -40,14 +36,20 @@ def telegram_send(text, chat_id=None, reply_markup=None):
         payload["reply_markup"] = json.dumps(reply_markup)
     data = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    urllib.request.urlopen(req)
+    try:
+        urllib.request.urlopen(req)
+    except Exception as e:
+        print(f"Telegram error: {e}")
 
 def telegram_answer_callback(callback_query_id):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery"
     payload = {"callback_query_id": callback_query_id}
     data = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    urllib.request.urlopen(req)
+    try:
+        urllib.request.urlopen(req)
+    except:
+        pass
 
 def gemini_ask(prompt):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
@@ -58,16 +60,17 @@ def gemini_ask(prompt):
         result = json.loads(res.read())
         return result["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-# --- NOTION HELPERS ---
-
 def get_settings():
     res = notion_request("POST", f"/databases/{NOTION_DB_SETTINGS}/query", {})
     settings = {}
     for page in res["results"]:
-        key = page["properties"]["Impostazione"]["title"][0]["text"]["content"]
-        val_arr = page["properties"]["Valore"]["rich_text"]
-        val = val_arr[0]["text"]["content"] if val_arr else ""
-        settings[key] = val
+        try:
+            key = page["properties"]["Impostazione"]["title"][0]["text"]["content"]
+            val_arr = page["properties"]["Valore"]["rich_text"]
+            val = val_arr[0]["text"]["content"] if val_arr else ""
+            settings[key] = val
+        except:
+            pass
     return settings
 
 def get_attivita_aperte():
@@ -81,18 +84,21 @@ def get_attivita_aperte():
     })
     items = []
     for page in res["results"]:
-        nome = page["properties"]["Nome"]["title"]
-        if not nome:
-            continue
-        azione = page["properties"]["Azione esterna"]["rich_text"]
-        scadenza = page["properties"]["Scadenza"]["date"]
-        items.append({
-            "id": page["id"],
-            "nome": nome[0]["text"]["content"],
-            "tipo": (page["properties"]["Tipo"]["select"] or {}).get("name", "Task"),
-            "scadenza": scadenza["start"] if scadenza else None,
-            "azione": azione[0]["text"]["content"] if azione else None
-        })
+        try:
+            nome = page["properties"]["Nome"]["title"]
+            if not nome:
+                continue
+            azione = page["properties"]["Azione esterna"]["rich_text"]
+            scadenza = page["properties"]["Scadenza"]["date"]
+            items.append({
+                "id": page["id"],
+                "nome": nome[0]["text"]["content"],
+                "tipo": (page["properties"]["Tipo"]["select"] or {}).get("name", "Task"),
+                "scadenza": scadenza["start"] if scadenza else None,
+                "azione": azione[0]["text"]["content"] if azione else None
+            })
+        except:
+            pass
     return items
 
 def get_abitudini_attive():
@@ -101,17 +107,20 @@ def get_abitudini_attive():
     })
     items = []
     for page in res["results"]:
-        nome = page["properties"]["Abitudine"]["title"]
-        if not nome:
-            continue
-        orario = page["properties"]["Orario ideale"]["rich_text"]
-        azione = page["properties"]["Azione esterna"]["rich_text"]
-        items.append({
-            "id": page["id"],
-            "nome": nome[0]["text"]["content"],
-            "orario": orario[0]["text"]["content"] if orario else None,
-            "azione": azione[0]["text"]["content"] if azione else None
-        })
+        try:
+            nome = page["properties"]["Abitudine"]["title"]
+            if not nome:
+                continue
+            orario = page["properties"]["Orario ideale"]["rich_text"]
+            azione = page["properties"]["Azione esterna"]["rich_text"]
+            items.append({
+                "id": page["id"],
+                "nome": nome[0]["text"]["content"],
+                "orario": orario[0]["text"]["content"] if orario else None,
+                "azione": azione[0]["text"]["content"] if azione else None
+            })
+        except:
+            pass
     return items
 
 def segna_fatto(page_id):
@@ -135,13 +144,10 @@ def aggiungi_attivita(nome, tipo="Task"):
         }
     })
 
-# --- BOT LOGIC ---
-
-# Stato temporaneo in memoria (funziona per singolo utente)
 _state = {}
 
 def handle_command(cmd, chat_id):
-    if cmd == "/start" or cmd == "/help":
+    if cmd in ["/start", "/help"]:
         telegram_send(
             "👋 Ciao! Sono il tuo bot *AllaRound*.\n\n"
             "➕ /aggiungi — aggiungi attività o abitudine\n"
@@ -150,7 +156,6 @@ def handle_command(cmd, chat_id):
             "📊 /recap — recap della giornata\n",
             chat_id
         )
-
     elif cmd == "/oggi":
         attivita = get_attivita_aperte()
         abitudini = get_abitudini_attive()
@@ -167,7 +172,6 @@ def handle_command(cmd, chat_id):
         if not abitudini:
             msg += "Nessuna abitudine configurata\n"
         telegram_send(msg, chat_id)
-
     elif cmd == "/aggiungi":
         keyboard = {
             "inline_keyboard": [
@@ -178,7 +182,6 @@ def handle_command(cmd, chat_id):
             ]
         }
         telegram_send("Cosa vuoi aggiungere?", chat_id, reply_markup=keyboard)
-
     elif cmd == "/fatto":
         attivita = get_attivita_aperte()
         if not attivita:
@@ -189,33 +192,28 @@ def handle_command(cmd, chat_id):
             for a in attivita[:8]
         ]}
         telegram_send("Cosa hai completato?", chat_id, reply_markup=keyboard)
-
     elif cmd == "/recap":
         attivita = get_attivita_aperte()
         abitudini = get_abitudini_attive()
-        prompt = f"""Sei un assistente personale. Scrivi un recap serale breve (max 5 righe) in italiano.
-Attività ancora aperte: {len(attivita)}
-Abitudini configurate: {len(abitudini)}
-Sii incoraggiante. Usa qualche emoji."""
         try:
-            msg = gemini_ask(prompt)
+            msg = gemini_ask(f"Scrivi un recap serale breve (max 5 righe) in italiano. "
+                           f"Attività ancora aperte: {len(attivita)}. "
+                           f"Abitudini configurate: {len(abitudini)}. "
+                           f"Sii incoraggiante. Usa emoji.")
         except:
             msg = f"🌙 Giornata quasi finita! Hai ancora {len(attivita)} attività aperte."
         telegram_send(msg, chat_id)
 
 def handle_callback(callback_query_id, data, chat_id):
     telegram_answer_callback(callback_query_id)
-
     if data.startswith("tipo_"):
         tipo = data.replace("tipo_", "")
         _state[chat_id] = {"azione": "aggiungi", "tipo": tipo}
         telegram_send(f"Hai scelto *{tipo}*.\n\nScrivimi il nome:", chat_id)
-
     elif data.startswith("fatto_"):
         page_id = data.replace("fatto_", "")
         segna_fatto(page_id)
         telegram_send("✅ Ottimo! Segnato come fatto!", chat_id)
-
     elif data.startswith("rimanda_"):
         page_id = data.replace("rimanda_", "")
         segna_rimandato(page_id)
@@ -231,69 +229,56 @@ def handle_text(text, chat_id):
     else:
         telegram_send("Usa /aggiungi per aggiungere qualcosa, o /help per i comandi.", chat_id)
 
-# --- SCHEDULER (chiamato da cron-job.org) ---
-
 def handle_scheduler():
     now = datetime.now(tz)
     ora = now.strftime("%H:%M")
-    settings = get_settings()
+    try:
+        settings = get_settings()
+    except:
+        settings = {}
     chat_id = TELEGRAM_CHAT_ID
 
     if ora == settings.get("orario_recap_mattutino", "08:00"):
         attivita = get_attivita_aperte()
         abitudini = get_abitudini_attive()
         oggi = now.strftime("%A %d %B %Y")
-        prompt = f"""Sei un assistente personale motivante. Oggi è {oggi}.
-Attività da fare: {', '.join([a['nome'] for a in attivita[:5]]) or 'nessuna'}
-Abitudini di oggi: {', '.join([a['nome'] for a in abitudini]) or 'nessuna'}
-Scrivi un messaggio mattutino breve (max 5 righe) in italiano, motivante e con priorità chiara. Usa emoji."""
         try:
-            msg = gemini_ask(prompt)
+            msg = gemini_ask(f"Sei un assistente personale motivante. Oggi è {oggi}. "
+                           f"Attività da fare: {', '.join([a['nome'] for a in attivita[:5]]) or 'nessuna'}. "
+                           f"Abitudini di oggi: {', '.join([a['nome'] for a in abitudini]) or 'nessuna'}. "
+                           f"Scrivi un messaggio mattutino breve (max 5 righe) in italiano con emoji.")
         except:
             msg = f"🌅 Buongiorno! Hai {len(attivita)} attività e {len(abitudini)} abitudini oggi. Forza! 💪"
         telegram_send(msg, chat_id)
-
     elif ora == settings.get("orario_musica_mattina", "09:30"):
         playlist = settings.get("spotify_playlist_mattina", "")
         link = playlist if playlist else "https://open.spotify.com"
         keyboard = {"inline_keyboard": [[{"text": "▶️ Apri Spotify", "url": link}]]}
         telegram_send("🎵 È ora di ascoltare la tua musica mattutina!", chat_id, reply_markup=keyboard)
-
     elif ora == settings.get("orario_lettura", "21:00"):
         telegram_send("📚 Hai letto le tue 25 pagine oggi? Prenditi 30 minuti prima di dormire!", chat_id)
-
     elif ora == settings.get("orario_recap_serale", "22:30"):
         attivita = get_attivita_aperte()
-        prompt = f"""Scrivi un recap serale breve (max 5 righe) in italiano.
-Attività ancora aperte: {len(attivita)}
-Sii onesto ma incoraggiante. Usa emoji."""
         try:
-            msg = gemini_ask(prompt)
+            msg = gemini_ask(f"Scrivi un recap serale breve (max 5 righe) in italiano. "
+                           f"Attività ancora aperte: {len(attivita)}. Sii onesto ma incoraggiante. Usa emoji.")
         except:
             msg = f"🌙 Giornata finita! Hai ancora {len(attivita)} attività aperte."
         telegram_send(msg, chat_id)
 
-# --- HANDLER VERCEL ---
-
-class handler(BaseHTTPRequestHandler):
-
-    def do_POST(self):
-        # Scheduler chiamato da cron-job.org
-        if self.path == "/api/webhook?cron=1":
+def handler(request):
+    try:
+        if request.args.get("cron") == "1":
             handle_scheduler()
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"ok")
-            return
+            return ("ok", 200, {"Content-Type": "text/plain"})
 
-        # Webhook Telegram
-        content_length = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(content_length))
+        body = request.get_json(silent=True)
+        if not body:
+            return ("ok", 200, {"Content-Type": "text/plain"})
 
         if "callback_query" in body:
             cq = body["callback_query"]
             handle_callback(cq["id"], cq["data"], str(cq["from"]["id"]))
-
         elif "message" in body:
             msg = body["message"]
             chat_id = str(msg["chat"]["id"])
@@ -303,11 +288,8 @@ class handler(BaseHTTPRequestHandler):
             else:
                 handle_text(text, chat_id)
 
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"ok")
+        return ("ok", 200, {"Content-Type": "text/plain"})
 
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"AllaRound Bot is running!")
+    except Exception as e:
+        print(f"Error: {e}")
+        return (str(e), 500, {"Content-Type": "text/plain"})
