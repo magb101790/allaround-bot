@@ -1,3 +1,4 @@
+from http.server import BaseHTTPRequestHandler
 import json
 import os
 import urllib.request
@@ -243,8 +244,6 @@ def handle_scheduler():
         settings = {}
     chat_id = TELEGRAM_CHAT_ID
 
-    # Legge tutti gli orari dinamicamente da Notion
-    # Recap mattutino
     if ora == settings.get("orario_recap_mattutino", "08:00"):
         attivita = get_attivita_aperte()
         abitudini = get_abitudini_attive()
@@ -258,18 +257,15 @@ def handle_scheduler():
             msg = f"🌅 Buongiorno! Hai {len(attivita)} attività e {len(abitudini)} abitudini oggi. Forza! 💪"
         telegram_send(msg, chat_id)
 
-    # Tutti gli orari Spotify — gestiti dinamicamente
     spotify_orari = {k: v for k, v in settings.items() if k.startswith("orario_musica")}
     for chiave, orario_spotify in spotify_orari.items():
         if ora == orario_spotify:
-            testo = "🎵 È ora di ascoltare la tua musica!" if "pomeriggio" in chiave else "🎵 Buongiorno con la musica! 🎶"
+            testo = "🎵 Pausa musicale del pomeriggio! 🎶" if "pomeriggio" in chiave else "🎵 Buongiorno con la musica! 🎶"
             invia_spotify(settings, chat_id, testo)
 
-    # Lettura
     if ora == settings.get("orario_lettura", "21:00"):
         telegram_send("📚 Hai letto le tue 25 pagine oggi? Prenditi 30 minuti prima di dormire!", chat_id)
 
-    # Recap serale
     if ora == settings.get("orario_recap_serale", "22:30"):
         attivita = get_attivita_aperte()
         try:
@@ -279,7 +275,6 @@ def handle_scheduler():
             msg = f"🌙 Giornata finita! Hai ancora {len(attivita)} attività aperte."
         telegram_send(msg, chat_id)
 
-    # Reminder generici dinamici — qualsiasi chiave "orario_reminder_XXX" con messaggio in "testo_reminder_XXX"
     reminder_orari = {k: v for k, v in settings.items() if k.startswith("orario_reminder_")}
     for chiave, orario_reminder in reminder_orari.items():
         if ora == orario_reminder:
@@ -287,30 +282,48 @@ def handle_scheduler():
             testo = settings.get(f"testo_reminder_{nome}", f"🔔 Reminder: {nome}")
             telegram_send(testo, chat_id)
 
-def handler(request):
-    try:
-        if request.args.get("cron") == "1":
-            handle_scheduler()
-            return ("ok", 200, {"Content-Type": "text/plain"})
 
-        body = request.get_json(silent=True)
-        if not body:
-            return ("ok", 200, {"Content-Type": "text/plain"})
+class handler(BaseHTTPRequestHandler):
 
-        if "callback_query" in body:
-            cq = body["callback_query"]
-            handle_callback(cq["id"], cq["data"], str(cq["from"]["id"]))
-        elif "message" in body:
-            msg = body["message"]
-            chat_id = str(msg["chat"]["id"])
-            text = msg.get("text", "")
-            if text.startswith("/"):
-                handle_command(text.split()[0], chat_id)
-            else:
-                handle_text(text, chat_id)
+    def do_POST(self):
+        try:
+            path = self.path
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length)
 
-        return ("ok", 200, {"Content-Type": "text/plain"})
+            if "cron=1" in path:
+                handle_scheduler()
+                self._respond(200, "ok")
+                return
 
-    except Exception as e:
-        print(f"Error: {e}")
-        return (str(e), 500, {"Content-Type": "text/plain"})
+            body = json.loads(raw_body) if raw_body else {}
+
+            if "callback_query" in body:
+                cq = body["callback_query"]
+                handle_callback(cq["id"], cq["data"], str(cq["from"]["id"]))
+            elif "message" in body:
+                msg = body["message"]
+                chat_id = str(msg["chat"]["id"])
+                text = msg.get("text", "")
+                if text.startswith("/"):
+                    handle_command(text.split()[0], chat_id)
+                else:
+                    handle_text(text, chat_id)
+
+            self._respond(200, "ok")
+
+        except Exception as e:
+            print(f"Error: {e}")
+            self._respond(500, str(e))
+
+    def do_GET(self):
+        self._respond(200, "AllaRound Bot is running!")
+
+    def _respond(self, code, body):
+        self.send_response(code)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(body.encode())
+
+    def log_message(self, format, *args):
+        pass
