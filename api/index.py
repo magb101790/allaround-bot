@@ -2,13 +2,7 @@ from http.server import BaseHTTPRequestHandler
 import json
 import os
 import urllib.request
-from datetime import datetime
-try:
-from datetime import timezone, timedelta
-except:
-    import subprocess
-    subprocess.run(["pip", "install", "pytz"])
-    import pytz
+from datetime import datetime, timezone, timedelta
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -18,25 +12,13 @@ NOTION_DB_ATTIVITA = os.environ.get("NOTION_DB_ATTIVITA")
 NOTION_DB_ABITUDINI = os.environ.get("NOTION_DB_ABITUDINI")
 NOTION_DB_LOG = os.environ.get("NOTION_DB_LOG")
 NOTION_DB_SETTINGS = os.environ.get("NOTION_DB_SETTINGS")
-TIMEZONE = "Europe/Rome"
 
-tz = timezone(timedelta(hours=1))
+ROME_TZ = timezone(timedelta(hours=1))
 
-# Tastiera fissa con solo il pulsante Menu
 REPLY_KEYBOARD = {
     "keyboard": [[{"text": "🗂 Menu"}]],
     "resize_keyboard": True,
     "persistent": True
-}
-
-# Menu inline che appare quando premi Menu
-MENU_INLINE = {
-    "inline_keyboard": [
-        [{"text": "📋 Oggi", "callback_data": "cmd_oggi"},
-         {"text": "➕ Aggiungi", "callback_data": "cmd_aggiungi"}],
-        [{"text": "✅ Fatto", "callback_data": "cmd_fatto"},
-         {"text": "📊 Recap", "callback_data": "cmd_recap"}]
-    ]
 }
 
 def notion_request(method, path, data=None):
@@ -172,13 +154,18 @@ def aggiungi_attivita(nome, tipo="Task"):
 _state = {}
 
 def cmd_menu(chat_id):
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "📋 Oggi", "callback_data": "cmd_oggi"},
+             {"text": "➕ Aggiungi", "callback_data": "cmd_aggiungi"}],
+            [{"text": "✅ Fatto", "callback_data": "cmd_fatto"},
+             {"text": "📊 Recap", "callback_data": "cmd_recap"}]
+        ]
+    }
     telegram_send(
-        "👋 Ciao! Sono il tuo bot *AllaRound*.\n\n"
-        "Cosa vuoi fare oggi?",
+        "👋 Ciao! Sono il tuo bot *AllaRound*.\nCosa vuoi fare oggi?",
         chat_id,
-        reply_markup={
-            "inline_keyboard": MENU_INLINE["inline_keyboard"],
-        }
+        reply_markup=keyboard
     )
 
 def cmd_oggi(chat_id):
@@ -224,10 +211,12 @@ def cmd_recap(chat_id):
     attivita = get_attivita_aperte()
     abitudini = get_abitudini_attive()
     try:
-        msg = gemini_ask(f"Scrivi un recap breve (max 5 righe) in italiano. "
-                       f"Attività ancora aperte: {len(attivita)}. "
-                       f"Abitudini configurate: {len(abitudini)}. "
-                       f"Sii incoraggiante. Usa emoji.")
+        msg = gemini_ask(
+            f"Scrivi un recap breve (max 5 righe) in italiano. "
+            f"Attività ancora aperte: {len(attivita)}. "
+            f"Abitudini configurate: {len(abitudini)}. "
+            f"Sii incoraggiante. Usa emoji."
+        )
     except:
         msg = f"🌙 Hai ancora {len(attivita)} attività aperte."
     telegram_send(msg, chat_id)
@@ -274,7 +263,7 @@ def invia_spotify(settings, chat_id, testo):
     telegram_send(testo, chat_id, reply_markup=keyboard)
 
 def handle_scheduler():
-    now = datetime.now(tz)
+    now = datetime.now(ROME_TZ)
     ora = now.strftime("%H:%M")
     try:
         settings = get_settings()
@@ -287,10 +276,12 @@ def handle_scheduler():
         abitudini = get_abitudini_attive()
         oggi = now.strftime("%A %d %B %Y")
         try:
-            msg = gemini_ask(f"Sei un assistente personale motivante. Oggi è {oggi}. "
-                           f"Attività da fare: {', '.join([a['nome'] for a in attivita[:5]]) or 'nessuna'}. "
-                           f"Abitudini di oggi: {', '.join([a['nome'] for a in abitudini]) or 'nessuna'}. "
-                           f"Scrivi un messaggio mattutino breve (max 5 righe) in italiano con emoji.")
+            msg = gemini_ask(
+                f"Sei un assistente personale motivante. Oggi è {oggi}. "
+                f"Attività da fare: {', '.join([a['nome'] for a in attivita[:5]]) or 'nessuna'}. "
+                f"Abitudini di oggi: {', '.join([a['nome'] for a in abitudini]) or 'nessuna'}. "
+                f"Scrivi un messaggio mattutino breve (max 5 righe) in italiano con emoji."
+            )
         except:
             msg = f"🌅 Buongiorno! Hai {len(attivita)} attività e {len(abitudini)} abitudini oggi. Forza! 💪"
         telegram_send(msg, chat_id)
@@ -307,8 +298,10 @@ def handle_scheduler():
     if ora == settings.get("orario_recap_serale", "22:30"):
         attivita = get_attivita_aperte()
         try:
-            msg = gemini_ask(f"Scrivi un recap serale breve (max 5 righe) in italiano. "
-                           f"Attività ancora aperte: {len(attivita)}. Sii onesto ma incoraggiante. Usa emoji.")
+            msg = gemini_ask(
+                f"Scrivi un recap serale breve (max 5 righe) in italiano. "
+                f"Attività ancora aperte: {len(attivita)}. Sii onesto ma incoraggiante. Usa emoji."
+            )
         except:
             msg = f"🌙 Giornata finita! Hai ancora {len(attivita)} attività aperte."
         telegram_send(msg, chat_id)
