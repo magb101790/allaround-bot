@@ -17,14 +17,21 @@ TIMEZONE = "Europe/Rome"
 
 tz = pytz.timezone(TIMEZONE)
 
+# Tastiera fissa con solo il pulsante Menu
 REPLY_KEYBOARD = {
-    "keyboard": [
-        [{"text": "📋 Oggi"}, {"text": "➕ Aggiungi"}],
-        [{"text": "✅ Fatto"}, {"text": "📊 Recap"}],
-        [{"text": "🗂 Menu"}]
-    ],
+    "keyboard": [[{"text": "🗂 Menu"}]],
     "resize_keyboard": True,
     "persistent": True
+}
+
+# Menu inline che appare quando premi Menu
+MENU_INLINE = {
+    "inline_keyboard": [
+        [{"text": "📋 Oggi", "callback_data": "cmd_oggi"},
+         {"text": "➕ Aggiungi", "callback_data": "cmd_aggiungi"}],
+        [{"text": "✅ Fatto", "callback_data": "cmd_fatto"},
+         {"text": "📊 Recap", "callback_data": "cmd_recap"}]
+    ]
 }
 
 def notion_request(method, path, data=None):
@@ -159,23 +166,15 @@ def aggiungi_attivita(nome, tipo="Task"):
 
 _state = {}
 
-def cmd_start(chat_id):
+def cmd_menu(chat_id):
     telegram_send(
         "👋 Ciao! Sono il tuo bot *AllaRound*.\n\n"
-        "Usa i pulsanti qui sotto per navigare 👇",
-        chat_id
+        "Cosa vuoi fare oggi?",
+        chat_id,
+        reply_markup={
+            "inline_keyboard": MENU_INLINE["inline_keyboard"],
+        }
     )
-
-def cmd_menu(chat_id):
-    keyboard = {
-        "inline_keyboard": [
-            [{"text": "📋 Oggi", "callback_data": "cmd_oggi"},
-             {"text": "➕ Aggiungi", "callback_data": "cmd_aggiungi"}],
-            [{"text": "✅ Fatto", "callback_data": "cmd_fatto"},
-             {"text": "📊 Recap", "callback_data": "cmd_recap"}]
-        ]
-    }
-    telegram_send("🗂 *Menu AllaRound*\nCosa vuoi fare?", chat_id, reply_markup=keyboard)
 
 def cmd_oggi(chat_id):
     attivita = get_attivita_aperte()
@@ -229,19 +228,9 @@ def cmd_recap(chat_id):
     telegram_send(msg, chat_id)
 
 def handle_text(text, chat_id):
-    # Gestisci pulsanti della Reply Keyboard
-    if text == "📋 Oggi":
-        cmd_oggi(chat_id)
-    elif text == "➕ Aggiungi":
-        cmd_aggiungi(chat_id)
-    elif text == "✅ Fatto":
-        cmd_fatto(chat_id)
-    elif text == "📊 Recap":
-        cmd_recap(chat_id)
-    elif text == "🗂 Menu":
+    if text == "🗂 Menu":
         cmd_menu(chat_id)
     else:
-        # Gestisci stato conversazione (es. aggiunta attività)
         state = _state.get(chat_id)
         if state and state.get("azione") == "aggiungi":
             tipo = state.get("tipo", "Task")
@@ -249,7 +238,7 @@ def handle_text(text, chat_id):
             _state.pop(chat_id, None)
             telegram_send(f"✅ *{text}* aggiunto come {tipo}!", chat_id)
         else:
-            telegram_send("Usa i pulsanti qui sotto 👇", chat_id)
+            telegram_send("Premi *🗂 Menu* per vedere i comandi disponibili.", chat_id)
 
 def handle_callback(callback_query_id, data, chat_id):
     telegram_answer_callback(callback_query_id)
@@ -350,9 +339,7 @@ class handler(BaseHTTPRequestHandler):
                 chat_id = str(msg["chat"]["id"])
                 text = msg.get("text", "")
                 if text.startswith("/start"):
-                    cmd_start(chat_id)
-                elif text.startswith("/"):
-                    handle_text(text.replace("/", "").split()[0], chat_id)
+                    cmd_menu(chat_id)
                 else:
                     handle_text(text, chat_id)
 
