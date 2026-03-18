@@ -3,7 +3,12 @@ import json
 import os
 import urllib.request
 from datetime import datetime
-import pytz
+try:
+    import pytz
+except:
+    import subprocess
+    subprocess.run(["pip", "install", "pytz"])
+    import pytz
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
