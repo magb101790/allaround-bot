@@ -4,7 +4,7 @@ import os
 import urllib.request
 from datetime import datetime
 try:
-    import pytz
+from datetime import timezone, timedelta
 except:
     import subprocess
     subprocess.run(["pip", "install", "pytz"])
@@ -20,7 +20,7 @@ NOTION_DB_LOG = os.environ.get("NOTION_DB_LOG")
 NOTION_DB_SETTINGS = os.environ.get("NOTION_DB_SETTINGS")
 TIMEZONE = "Europe/Rome"
 
-tz = pytz.timezone(TIMEZONE)
+tz = timezone(timedelta(hours=1))
 
 # Tastiera fissa con solo il pulsante Menu
 REPLY_KEYBOARD = {
