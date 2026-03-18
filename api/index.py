@@ -17,6 +17,16 @@ TIMEZONE = "Europe/Rome"
 
 tz = pytz.timezone(TIMEZONE)
 
+REPLY_KEYBOARD = {
+    "keyboard": [
+        [{"text": "📋 Oggi"}, {"text": "➕ Aggiungi"}],
+        [{"text": "✅ Fatto"}, {"text": "📊 Recap"}],
+        [{"text": "🗂 Menu"}]
+    ],
+    "resize_keyboard": True,
+    "persistent": True
+}
+
 def notion_request(method, path, data=None):
     url = f"https://api.notion.com/v1{path}"
     headers = {
@@ -35,6 +45,8 @@ def telegram_send(text, chat_id=None, reply_markup=None):
     payload = {"chat_id": cid, "text": text, "parse_mode": "Markdown"}
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
+    else:
+        payload["reply_markup"] = json.dumps(REPLY_KEYBOARD)
     data = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     try:
@@ -147,67 +159,109 @@ def aggiungi_attivita(nome, tipo="Task"):
 
 _state = {}
 
-def handle_command(cmd, chat_id):
-    if cmd in ["/start", "/help"]:
-        telegram_send(
-            "👋 Ciao! Sono il tuo bot *AllaRound*.\n\n"
-            "➕ /aggiungi — aggiungi attività o abitudine\n"
-            "📋 /oggi — vedi le attività aperte\n"
-            "✅ /fatto — segna qualcosa come fatto\n"
-            "📊 /recap — recap della giornata\n",
-            chat_id
-        )
-    elif cmd == "/oggi":
-        attivita = get_attivita_aperte()
-        abitudini = get_abitudini_attive()
-        msg = "📋 *Attività aperte*\n"
-        for a in attivita[:10]:
-            scad = f" ⏰ {a['scadenza']}" if a['scadenza'] else ""
-            msg += f"• {a['nome']} _{a['tipo']}{scad}_\n"
-        if not attivita:
-            msg += "Nessuna attività pendente 🎉\n"
-        msg += "\n🔁 *Abitudini attive*\n"
-        for a in abitudini:
-            orario = f" alle {a['orario']}" if a['orario'] else ""
-            msg += f"• {a['nome']}{orario}\n"
-        if not abitudini:
-            msg += "Nessuna abitudine configurata\n"
-        telegram_send(msg, chat_id)
-    elif cmd == "/aggiungi":
-        keyboard = {
-            "inline_keyboard": [
-                [{"text": "📌 Task", "callback_data": "tipo_Task"},
-                 {"text": "🔁 Abitudine", "callback_data": "tipo_Abitudine"}],
-                [{"text": "🎯 Obiettivo", "callback_data": "tipo_Obiettivo"},
-                 {"text": "🔔 Promemoria", "callback_data": "tipo_Promemoria"}]
-            ]
-        }
-        telegram_send("Cosa vuoi aggiungere?", chat_id, reply_markup=keyboard)
-    elif cmd == "/fatto":
-        attivita = get_attivita_aperte()
-        if not attivita:
-            telegram_send("Nessuna attività pendente! 🎉", chat_id)
-            return
-        keyboard = {"inline_keyboard": [
-            [{"text": f"✅ {a['nome']}", "callback_data": f"fatto_{a['id']}"}]
-            for a in attivita[:8]
-        ]}
-        telegram_send("Cosa hai completato?", chat_id, reply_markup=keyboard)
-    elif cmd == "/recap":
-        attivita = get_attivita_aperte()
-        abitudini = get_abitudini_attive()
-        try:
-            msg = gemini_ask(f"Scrivi un recap serale breve (max 5 righe) in italiano. "
-                           f"Attività ancora aperte: {len(attivita)}. "
-                           f"Abitudini configurate: {len(abitudini)}. "
-                           f"Sii incoraggiante. Usa emoji.")
-        except:
-            msg = f"🌙 Giornata quasi finita! Hai ancora {len(attivita)} attività aperte."
-        telegram_send(msg, chat_id)
+def cmd_start(chat_id):
+    telegram_send(
+        "👋 Ciao! Sono il tuo bot *AllaRound*.\n\n"
+        "Usa i pulsanti qui sotto per navigare 👇",
+        chat_id
+    )
+
+def cmd_menu(chat_id):
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "📋 Oggi", "callback_data": "cmd_oggi"},
+             {"text": "➕ Aggiungi", "callback_data": "cmd_aggiungi"}],
+            [{"text": "✅ Fatto", "callback_data": "cmd_fatto"},
+             {"text": "📊 Recap", "callback_data": "cmd_recap"}]
+        ]
+    }
+    telegram_send("🗂 *Menu AllaRound*\nCosa vuoi fare?", chat_id, reply_markup=keyboard)
+
+def cmd_oggi(chat_id):
+    attivita = get_attivita_aperte()
+    abitudini = get_abitudini_attive()
+    msg = "📋 *Attività aperte*\n"
+    for a in attivita[:10]:
+        scad = f" ⏰ {a['scadenza']}" if a['scadenza'] else ""
+        msg += f"• {a['nome']} _{a['tipo']}{scad}_\n"
+    if not attivita:
+        msg += "Nessuna attività pendente 🎉\n"
+    msg += "\n🔁 *Abitudini attive*\n"
+    for a in abitudini:
+        orario = f" alle {a['orario']}" if a['orario'] else ""
+        msg += f"• {a['nome']}{orario}\n"
+    if not abitudini:
+        msg += "Nessuna abitudine configurata\n"
+    telegram_send(msg, chat_id)
+
+def cmd_aggiungi(chat_id):
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "📌 Task", "callback_data": "tipo_Task"},
+             {"text": "🔁 Abitudine", "callback_data": "tipo_Abitudine"}],
+            [{"text": "🎯 Obiettivo", "callback_data": "tipo_Obiettivo"},
+             {"text": "🔔 Promemoria", "callback_data": "tipo_Promemoria"}]
+        ]
+    }
+    telegram_send("Cosa vuoi aggiungere?", chat_id, reply_markup=keyboard)
+
+def cmd_fatto(chat_id):
+    attivita = get_attivita_aperte()
+    if not attivita:
+        telegram_send("Nessuna attività pendente! 🎉", chat_id)
+        return
+    keyboard = {"inline_keyboard": [
+        [{"text": f"✅ {a['nome']}", "callback_data": f"fatto_{a['id']}"}]
+        for a in attivita[:8]
+    ]}
+    telegram_send("Cosa hai completato?", chat_id, reply_markup=keyboard)
+
+def cmd_recap(chat_id):
+    attivita = get_attivita_aperte()
+    abitudini = get_abitudini_attive()
+    try:
+        msg = gemini_ask(f"Scrivi un recap breve (max 5 righe) in italiano. "
+                       f"Attività ancora aperte: {len(attivita)}. "
+                       f"Abitudini configurate: {len(abitudini)}. "
+                       f"Sii incoraggiante. Usa emoji.")
+    except:
+        msg = f"🌙 Hai ancora {len(attivita)} attività aperte."
+    telegram_send(msg, chat_id)
+
+def handle_text(text, chat_id):
+    # Gestisci pulsanti della Reply Keyboard
+    if text == "📋 Oggi":
+        cmd_oggi(chat_id)
+    elif text == "➕ Aggiungi":
+        cmd_aggiungi(chat_id)
+    elif text == "✅ Fatto":
+        cmd_fatto(chat_id)
+    elif text == "📊 Recap":
+        cmd_recap(chat_id)
+    elif text == "🗂 Menu":
+        cmd_menu(chat_id)
+    else:
+        # Gestisci stato conversazione (es. aggiunta attività)
+        state = _state.get(chat_id)
+        if state and state.get("azione") == "aggiungi":
+            tipo = state.get("tipo", "Task")
+            aggiungi_attivita(text, tipo)
+            _state.pop(chat_id, None)
+            telegram_send(f"✅ *{text}* aggiunto come {tipo}!", chat_id)
+        else:
+            telegram_send("Usa i pulsanti qui sotto 👇", chat_id)
 
 def handle_callback(callback_query_id, data, chat_id):
     telegram_answer_callback(callback_query_id)
-    if data.startswith("tipo_"):
+    if data == "cmd_oggi":
+        cmd_oggi(chat_id)
+    elif data == "cmd_aggiungi":
+        cmd_aggiungi(chat_id)
+    elif data == "cmd_fatto":
+        cmd_fatto(chat_id)
+    elif data == "cmd_recap":
+        cmd_recap(chat_id)
+    elif data.startswith("tipo_"):
         tipo = data.replace("tipo_", "")
         _state[chat_id] = {"azione": "aggiungi", "tipo": tipo}
         telegram_send(f"Hai scelto *{tipo}*.\n\nScrivimi il nome:", chat_id)
@@ -219,16 +273,6 @@ def handle_callback(callback_query_id, data, chat_id):
         page_id = data.replace("rimanda_", "")
         segna_rimandato(page_id)
         telegram_send("⏭ Rimandato.", chat_id)
-
-def handle_text(text, chat_id):
-    state = _state.get(chat_id)
-    if state and state.get("azione") == "aggiungi":
-        tipo = state.get("tipo", "Task")
-        aggiungi_attivita(text, tipo)
-        _state.pop(chat_id, None)
-        telegram_send(f"✅ *{text}* aggiunto come {tipo}!", chat_id)
-    else:
-        telegram_send("Usa /aggiungi per aggiungere qualcosa, o /help per i comandi.", chat_id)
 
 def invia_spotify(settings, chat_id, testo):
     playlist = settings.get("spotify_link", "https://open.spotify.com/section/0JQ5DAqbMKFQ00XGBls6wr")
@@ -305,8 +349,10 @@ class handler(BaseHTTPRequestHandler):
                 msg = body["message"]
                 chat_id = str(msg["chat"]["id"])
                 text = msg.get("text", "")
-                if text.startswith("/"):
-                    handle_command(text.split()[0], chat_id)
+                if text.startswith("/start"):
+                    cmd_start(chat_id)
+                elif text.startswith("/"):
+                    handle_text(text.replace("/", "").split()[0], chat_id)
                 else:
                     handle_text(text, chat_id)
 
