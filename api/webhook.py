@@ -1,4 +1,3 @@
-from http.server import BaseHTTPRequestHandler
 import json
 import os
 import urllib.request
@@ -230,6 +229,11 @@ def handle_text(text, chat_id):
     else:
         telegram_send("Usa /aggiungi per aggiungere qualcosa, o /help per i comandi.", chat_id)
 
+def invia_spotify(settings, chat_id, testo):
+    playlist = settings.get("spotify_link", "https://open.spotify.com/section/0JQ5DAqbMKFQ00XGBls6wr")
+    keyboard = {"inline_keyboard": [[{"text": "▶️ Apri Spotify", "url": playlist}]]}
+    telegram_send(testo, chat_id, reply_markup=keyboard)
+
 def handle_scheduler():
     now = datetime.now(tz)
     ora = now.strftime("%H:%M")
@@ -239,6 +243,8 @@ def handle_scheduler():
         settings = {}
     chat_id = TELEGRAM_CHAT_ID
 
+    # Legge tutti gli orari dinamicamente da Notion
+    # Recap mattutino
     if ora == settings.get("orario_recap_mattutino", "08:00"):
         attivita = get_attivita_aperte()
         abitudini = get_abitudini_attive()
@@ -251,14 +257,20 @@ def handle_scheduler():
         except:
             msg = f"🌅 Buongiorno! Hai {len(attivita)} attività e {len(abitudini)} abitudini oggi. Forza! 💪"
         telegram_send(msg, chat_id)
-    elif ora == settings.get("orario_musica_mattina", "09:30"):
-        playlist = settings.get("spotify_playlist_mattina", "")
-        link = playlist if playlist else "https://open.spotify.com"
-        keyboard = {"inline_keyboard": [[{"text": "▶️ Apri Spotify", "url": link}]]}
-        telegram_send("🎵 È ora di ascoltare la tua musica mattutina!", chat_id, reply_markup=keyboard)
-    elif ora == settings.get("orario_lettura", "21:00"):
+
+    # Tutti gli orari Spotify — gestiti dinamicamente
+    spotify_orari = {k: v for k, v in settings.items() if k.startswith("orario_musica")}
+    for chiave, orario_spotify in spotify_orari.items():
+        if ora == orario_spotify:
+            testo = "🎵 È ora di ascoltare la tua musica!" if "pomeriggio" in chiave else "🎵 Buongiorno con la musica! 🎶"
+            invia_spotify(settings, chat_id, testo)
+
+    # Lettura
+    if ora == settings.get("orario_lettura", "21:00"):
         telegram_send("📚 Hai letto le tue 25 pagine oggi? Prenditi 30 minuti prima di dormire!", chat_id)
-    elif ora == settings.get("orario_recap_serale", "22:30"):
+
+    # Recap serale
+    if ora == settings.get("orario_recap_serale", "22:30"):
         attivita = get_attivita_aperte()
         try:
             msg = gemini_ask(f"Scrivi un recap serale breve (max 5 righe) in italiano. "
@@ -266,6 +278,14 @@ def handle_scheduler():
         except:
             msg = f"🌙 Giornata finita! Hai ancora {len(attivita)} attività aperte."
         telegram_send(msg, chat_id)
+
+    # Reminder generici dinamici — qualsiasi chiave "orario_reminder_XXX" con messaggio in "testo_reminder_XXX"
+    reminder_orari = {k: v for k, v in settings.items() if k.startswith("orario_reminder_")}
+    for chiave, orario_reminder in reminder_orari.items():
+        if ora == orario_reminder:
+            nome = chiave.replace("orario_reminder_", "")
+            testo = settings.get(f"testo_reminder_{nome}", f"🔔 Reminder: {nome}")
+            telegram_send(testo, chat_id)
 
 def handler(request):
     try:
